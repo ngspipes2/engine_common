@@ -12,16 +12,16 @@ public class ConsoleArguments extends Arguments {
     }
 
 
-    public ConsoleArguments(String pipes, String outPath, int cpus, int mem, int disk,
+    public ConsoleArguments(String pipes, String outPath, String workingDirectory, int cpus, int mem, int disk,
                             boolean parallel, Map<String, Object> parameters) {
-        super(outPath, cpus, mem, disk, parallel);
+        super(outPath, workingDirectory, cpus, mem, disk, parallel);
         this.parameters = parameters;
         this.pipes = pipes;
     }
 
-    public ConsoleArguments(String outPath, int cpus, int mem, int disk, boolean parallel,
+    public ConsoleArguments(String outPath, String workingDirectory, int cpus, int mem, int disk, boolean parallel,
                             Map<String, Object> parameters, String ir) {
-        super(outPath, parallel);
+        super(outPath, workingDirectory, parallel);
         this.cpus = cpus;
         this.mem = mem;
         this.disk = disk;

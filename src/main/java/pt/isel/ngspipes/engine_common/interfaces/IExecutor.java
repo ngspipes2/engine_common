@@ -9,7 +9,7 @@ public interface IExecutor {
     boolean stop(String executionId) throws ExecutorException;
     boolean clean(String executionId) throws ExecutorException;
     boolean cleanAll() throws ExecutorException;
-    void getPipelineOutputs(String executionId, String outputDirectory) throws ExecutorException;
+    void getPipelineOutputs(Pipeline pipeline, String outputDirectory) throws ExecutorException;
     String getWorkingDirectory();
-
+    String getFileSeparator();
 }

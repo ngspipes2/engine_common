@@ -12,7 +12,7 @@ public class CommandBuilderSupplier {
     public final static Map<String, ICommandBuilder> BUILDERS = new HashMap<>();
 
     static {
-        BUILDERS.put("Docker", new DockerCommandBuilder());
+        BUILDERS.put("Docker", new DockerCommandBuilder("Z"));
         BUILDERS.put("Local", new LocalCommandBuilder());
     }
 

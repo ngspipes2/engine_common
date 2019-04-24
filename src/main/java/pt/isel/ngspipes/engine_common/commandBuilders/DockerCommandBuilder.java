@@ -14,10 +14,16 @@ import java.util.Map;
 public class DockerCommandBuilder extends CommandBuilder {
 
     // 1: engineStepOutputDir 2:engineStepInputDir 3:imageName 4:stepCommand
-    private static final String DOCKER_CMD = "sudo docker run -w /sharedOutputs/ -v %1$s:/sharedOutputs/:rw -v " +
-                                             "%2$s:/sharedInputs/:rw %3$s %4$s";
+    private static final String DOCKER_CMD = "sudo docker run -w /sharedOutputs/ -v %1$s:/sharedOutputs/:%2$s -v " +
+                                             "%3$s:/sharedInputs/:%2$s %4$s %5$s";
     private static final String DOCKER_IMG_NAME_KEY = "uri";
     private static final String DOCKER_IMG_TAG_KEY = "tag";
+
+    private final String volumePermission;
+
+    public DockerCommandBuilder() { this("rw"); }
+
+    public DockerCommandBuilder(String volumePermission) { this.volumePermission = volumePermission; }
 
     @Override
     public String build(Pipeline pipeline, Job job, String fileSeparator,
@@ -26,7 +32,7 @@ public class DockerCommandBuilder extends CommandBuilder {
         Environment environment = job.getEnvironment();
         String dockerImage = getDockerImageName(((SimpleJob)job).getExecutionContext());
         String executionCommand = buildCommand(pipeline, job, this::getDockerInputValue);
-        return String.format(DOCKER_CMD, environment.getOutputsDirectory(),
+        return String.format(DOCKER_CMD, environment.getOutputsDirectory(), volumePermission,
                                             pipeline.getEnvironment().getWorkDirectory(),
                                         dockerImage, executionCommand);
     }

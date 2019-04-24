@@ -32,6 +32,8 @@ public class IOUtils {
         Path sourcePath = Paths.get(source);
         Path destPath = Paths.get(dest);
         File destFile = new File(destPath.toString());
+        if (destFile.exists())
+            return;
         destFile.getParentFile().mkdirs();
         destFile.createNewFile();
         Files.copy(sourcePath, destPath, StandardCopyOption.REPLACE_EXISTING);
@@ -73,6 +75,8 @@ public class IOUtils {
         Path sourcePath = Paths.get(source);
         Path destPath = Paths.get(dest);
         File destFile = new File(destPath.toString());
+        if (destFile.exists())
+            return;
         if (!destFile.getParentFile().exists())
             destFile.getParentFile().mkdirs();
         Files.copy(sourcePath, destPath);
