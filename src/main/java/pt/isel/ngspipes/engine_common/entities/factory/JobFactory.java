@@ -562,9 +562,10 @@ public class JobFactory {
                 String outValue = value.substring(value.indexOf("$") + 1);
                 setNotRequireOutput(output, outputs, usedBy, toRemove, orderdInputs, outValue, visitOutputs, outputsByName);
             } else {
-                String[] values = value.split("$");
+                String[] values = value.split("\\$");
                 for (String outValue : values) {
-                    setNotRequireOutput(output, outputs, usedBy, toRemove, orderdInputs, outValue, visitOutputs, outputsByName);
+                    if (!outValue.isEmpty())
+                        setNotRequireOutput(output, outputs, usedBy, toRemove, orderdInputs, outValue, visitOutputs, outputsByName);
                 }
             }
         }
@@ -577,6 +578,20 @@ public class JobFactory {
                                             Map<String, IOutputDescriptor> outputsByName) {
         if (outValue.contains("/"))
             outValue = outValue.substring(0, outValue.indexOf("/"));
+        if (outValue.contains("*")) {
+            int idx = outValue.indexOf("*");
+            if (idx == 0)
+                outValue = outValue.substring(1);
+            else
+                outValue = outValue.substring(0, idx);
+        }
+        if (outValue.contains(".")) {
+            int idx = outValue.indexOf(".");
+            if (idx == 0)
+                outValue = outValue.substring(1);
+            else
+                outValue = outValue.substring(0, idx);
+        }
         for (String visitOutput : visitOutputs) {
             if (output.getName().equals(visitOutput))
                 return;
@@ -616,8 +631,9 @@ public class JobFactory {
         StringBuilder value = new StringBuilder();
         if (outputValue.contains("$")) {
             if (outputValue.indexOf("$") != outputValue.lastIndexOf("$")) {
-                String[] splittedByDependency = outputValue.split("$");
+                String[] splittedByDependency = outputValue.split("\\$");
                 for (String val : splittedByDependency) {
+                    if (!val.isEmpty())
                     dependentOutValue(inputs, outputs, jobCmdMap, job, value, val, usedBy, outputName, type);
                 }
             } else {

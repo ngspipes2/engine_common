@@ -30,7 +30,7 @@ public class DescriptorsUtils {
         try {
             return repo.get(toolName);
         } catch (ToolsRepositoryException e) {
-            throw new EngineCommonException("Error getting tool for step " + stepId, e);
+            throw new EngineCommonException("Error getting tool " + toolName + " for step " + stepId, e);
         }
     }
 
