@@ -1,9 +1,13 @@
 package pt.isel.ngspipes.engine_common.entities.factory;
 
 import pt.isel.ngspipes.engine_common.entities.Environment;
-import pt.isel.ngspipes.engine_common.exception.EngineCommonException;
+import pt.isel.ngspipes.engine_common.entities.ExecutionState;
+import pt.isel.ngspipes.engine_common.entities.StateEnum;
 import pt.isel.ngspipes.engine_common.entities.contexts.*;
 import pt.isel.ngspipes.engine_common.entities.contexts.strategy.*;
+import pt.isel.ngspipes.engine_common.exception.EngineCommonException;
+import pt.isel.ngspipes.engine_common.utils.DescriptorsUtils;
+import pt.isel.ngspipes.engine_common.utils.RepositoryUtils;
 import pt.isel.ngspipes.engine_common.utils.SpreadJobExpander;
 import pt.isel.ngspipes.engine_common.utils.ValidateUtils;
 import pt.isel.ngspipes.pipeline_descriptor.IPipelineDescriptor;
@@ -25,8 +29,6 @@ import pt.isel.ngspipes.pipeline_descriptor.step.spread.strategyDescriptor.IStra
 import pt.isel.ngspipes.pipeline_repository.IPipelinesRepository;
 import pt.isel.ngspipes.tool_descriptor.interfaces.*;
 import pt.isel.ngspipes.tool_repository.interfaces.IToolsRepository;
-import pt.isel.ngspipes.engine_common.utils.DescriptorsUtils;
-import pt.isel.ngspipes.engine_common.utils.RepositoryUtils;
 
 import java.io.File;
 import java.util.*;
@@ -35,9 +37,8 @@ import java.util.stream.Collectors;
 public class JobFactory {
 
     public static List<Job> getJobs(IPipelineDescriptor pipelineDesc, Map<String, Object> parameters,
-                                    String workingDirectory, String fileSeparator) throws EngineCommonException {
+                                    String workingDirectory, String fileSeparator, Map<String, IToolsRepository> toolsRepos) throws EngineCommonException {
 
-        Map<String, IToolsRepository> toolsRepos = getToolsRepositories(pipelineDesc.getRepositories(), parameters);
         Map<String, IPipelinesRepository> pipelinesRepos = getPipelinesRepositories(pipelineDesc.getRepositories(), parameters);
         Map<String, Map.Entry<Job, ICommandDescriptor>> jobsCmdMap = new HashMap<>();
         addJobs(pipelineDesc, parameters, workingDirectory, toolsRepos, pipelinesRepos, "", jobsCmdMap, fileSeparator);
@@ -46,30 +47,31 @@ public class JobFactory {
     }
 
     public static void expandReadyJobs(List<Job> jobs, Pipeline pipeline, String fileSeparator) throws EngineCommonException {
-        List<Job> toRemove = new LinkedList<>();
-        List<Job> expandedJobs = new LinkedList<>();
+//        List<Job> toRemove = new LinkedList<>();
+//        List<Job> expandedJobs = new LinkedList<>();
+        List<Job> spreadJobs = new LinkedList<>();
+        Map<String, List<Job>> parentsSpread = new HashMap<>();
         for (Job job : jobs) {
             SimpleJob sJob = (SimpleJob) job;
             if (job.isInconclusive())
                 continue;
             if (job.getSpread() != null) {
-                List<Job> parentsSpread = getSpreadInputsParents(pipeline, sJob);
-                if (parentsSpread.isEmpty()) { // not chain not dependent
-                    expandedJobs.addAll(SpreadJobExpander.getExpandedJobs(pipeline, sJob, toRemove, null, fileSeparator));
-                }
-//                else {
-//                    for (Job parent: parentsSpread) {
-//                        if (isListingJob(parent, job)) {
-//                            job.setInconclusive(true);
-//                        } else { // middle spread
-//                            expandReadyJob(pipeline, toRemove, sJob, JobFactory::getMiddleOutputValues, expandedJobs);
-//                        }
-//                    }
+                parentsSpread.put(sJob.getId(), getSpreadInputsParents(pipeline, sJob));
+                spreadJobs.add(sJob);
+//                if (parentsSpread.isEmpty()) { // not chain not dependent
+//                    List<Job> spreadedJobs = SpreadJobExpander.getExpandedJobs(pipeline, sJob, toRemove, null, fileSeparator);
+//                    expandedJobs.addAll(spreadedJobs);
+//                    SpreadJobExpander.expandJobs(pipeline, sJob, null, fileSeparator);
 //                }
             }
         }
-        pipeline.addJobs(expandedJobs);
-        pipeline.removeJobs(toRemove);
+        for (Job spreadJob : spreadJobs) {
+            if (parentsSpread.containsKey(spreadJob.getId()) && parentsSpread.get(spreadJob.getId()).isEmpty())
+                SpreadJobExpander.expandJobs(pipeline, (SimpleJob) spreadJob, null, fileSeparator);
+        }
+
+//        pipeline.addJobs(expandedJobs);
+//        pipeline.removeJobs(toRemove);
     }
 
     public static Environment getJobEnvironment(String id, String workingDirectory, String fileSeparator) {
@@ -88,27 +90,13 @@ public class JobFactory {
         for (String inName : sJob.getSpread().getInputs()) {
             Input inputById = sJob.getInputById(inName);
             if (inputById.getOriginJob() == null) {
-                parentsSpread.add(pipeline.getJobById(inputById.getOriginStep()));
+                parentsSpread.add(pipeline.getJobById(inputById.getOriginStep().get(0)));
             }
-            if (!inputById.getOriginStep().equals(sJob.getId())) {
-                parentsSpread.add(inputById.getOriginJob());
+            if (!inputById.getOriginStep().get(0).equals(sJob.getId())) {
+                parentsSpread.add(inputById.getOriginJob().get(0));
             }
         }
         return parentsSpread;
-    }
-
-    private static void updateChains(Pipeline pipeline, Job job, Job old) {
-        String spreadId = old.getId() + "_" + old.getId();
-        String jobId = job.getId();
-        String aux = jobId + "_" + jobId;
-        String idx = jobId.substring(aux.length());
-        if (job.getChainsTo().contains(old)) {
-            job.addChainsTo(pipeline.getJobById(spreadId + idx));
-            job.getChainsTo().remove(old);
-        } else if (job.getChainsFrom().contains(old)) {
-            job.addChainsFrom(pipeline.getJobById(spreadId + idx));
-            job.getChainsFrom().remove(old);
-        }
     }
 
     private static void addJobs(IPipelineDescriptor pipelineDesc, Map<String, Object> parameters,
@@ -142,7 +130,12 @@ public class JobFactory {
             jobId = generateSubJobId(subId, stepId);
         Environment environment = getJobEnvironment(jobId, workingDirectory, fileSeparator);
         Job job = new SimpleJob(jobId, environment, command, execCtx);
+        job.setState(new ExecutionState(StateEnum.STAGING, null));
+        addJobSpread(step, job);
+        jobsCmdMap.put(jobId, new AbstractMap.SimpleEntry<>(job, cmdDesc));
+    }
 
+    private static void addJobSpread(IStepDescriptor step, Job job) {
         ISpreadDescriptor spread = step.getSpread();
         if (spread != null) {
             Collection<String> inputsToSpread = spread.getInputsToSpread();
@@ -150,8 +143,6 @@ public class JobFactory {
             Spread spreadContext = new Spread(inputsToSpread, strategy);
             job.setSpread(spreadContext);
         }
-
-        jobsCmdMap.put(jobId, new AbstractMap.SimpleEntry<>(job, cmdDesc));
     }
 
     private static void addComposeJob(Map<String, Object> params, String workingDirectory, IStepDescriptor step,
@@ -231,7 +222,6 @@ public class JobFactory {
     }
 
     private static void updateSubPipelineInputs(IPipelineDescriptor pipelineDesc, IStepDescriptor step) {
-
         List<IInputDescriptor> toRemove = new LinkedList<>();
         List<IInputDescriptor> toAdd = new LinkedList<>();
         List<String> visit = new LinkedList<>();
@@ -325,7 +315,8 @@ public class JobFactory {
                 List<Input> subInputs = new LinkedList<>();
                 addSubInputs(params, step, toolsRepos, pipeRepos, pipeDesc, visitParams, subParams, subInputs, jobCmdMap);
                 if (!subInputs.isEmpty()) {
-                    Input in = new Input(param.getName(), job, "",param.getType(), "",
+                    LinkedList<Job> originJob = new LinkedList<>(Collections.singletonList(job));
+                    Input in = new Input(param.getName(), originJob, "",param.getType(), "",
                             getFix(param.getPrefix()), getFix(param.getSeparator()),
                             getFix(param.getSuffix()), subInputs);
                     inputs.add(in);
@@ -368,7 +359,8 @@ public class JobFactory {
 
         Job originJob = getOriginJobByStepId(jobCmdMap, stepId);
         assert originJob != null;
-        Input inputContext = new Input(name, originJob, outName, param.getType(),
+        LinkedList<Job> originJobs = new LinkedList<>(Collections.singletonList(originJob));
+        Input inputContext = new Input(name, originJobs, outName, param.getType(),
                 inputValue.toString(), getFix(param.getPrefix()), getFix(param.getSeparator()),
                 getFix(param.getSuffix()), new LinkedList<>());
         inputs.add(inputContext);
@@ -394,9 +386,10 @@ public class JobFactory {
 
 
                 List<Input> subIns = new LinkedList<>();
-                Input inputContext = new Input(in.getInputName(), jobCmdMap.get(stepId).getKey(), outName,
-                        subParam.getType(), inVal.getKey(), getFix(subParam.getPrefix()),
-                        getFix(subParam.getSeparator()), getFix(subParam.getSuffix()), subIns);
+                LinkedList<Job> originJobs = new LinkedList<>(Collections.singletonList(jobCmdMap.get(stepId).getKey()));
+                Input inputContext = new Input(in.getInputName(), originJobs, outName, subParam.getType(),
+                                                inVal.getKey(), getFix(subParam.getPrefix()),
+                                                getFix(subParam.getSeparator()), getFix(subParam.getSuffix()), subIns);
                 subInputs.add(inputContext);
             }
         }
@@ -684,7 +677,7 @@ public class JobFactory {
         List<IOutputDescriptor> orderedOutputs = new LinkedList<>(outputs);
 
         Comparator<IOutputDescriptor> outputLengthComparator = (i0, i1) -> Integer.compare(i1.getName().length(), i0.getName().length());
-        Collections.sort(orderedOutputs, outputLengthComparator);
+        orderedOutputs.sort(outputLengthComparator);
 
         return orderedOutputs;
     }
@@ -704,7 +697,7 @@ public class JobFactory {
         LinkedList<Input> orderedInputs = new LinkedList<>(inputs);
         Comparator<Input> inputLengthComparator = (i0, i1) -> Integer.compare(i1.getName().length(), i0.getName().length());
 
-        Collections.sort(orderedInputs, inputLengthComparator);
+        orderedInputs.sort(inputLengthComparator);
         return orderedInputs;
     }
 

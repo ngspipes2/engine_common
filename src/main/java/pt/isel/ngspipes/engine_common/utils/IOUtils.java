@@ -1,5 +1,7 @@
 package pt.isel.ngspipes.engine_common.utils;
 
+import org.apache.commons.io.FilenameUtils;
+
 import java.io.*;
 import java.nio.file.*;
 import java.util.LinkedList;
@@ -54,7 +56,13 @@ public class IOUtils {
             currPattern = pattern;
         File dir = new File(directoryPath);
         List<String> names = new LinkedList<>();
-        File [] files = dir.listFiles((dir1, name) -> name.matches(currPattern));
+//        File [] files = dir.listFiles((dir1, name) -> name.matches(currPattern));
+        List<File> files = new LinkedList<>();
+        for (File subFile : Objects.requireNonNull(dir.listFiles())) {
+            String name = subFile.getName();
+            if (name.matches(currPattern) || FilenameUtils.wildcardMatch(name, currPattern))
+                files.add(subFile);
+        }
 
         if (files != null) {
             for (File file : files)

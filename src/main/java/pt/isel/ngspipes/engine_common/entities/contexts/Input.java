@@ -3,6 +3,9 @@ package pt.isel.ngspipes.engine_common.entities.contexts;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
 
 public class Input {
@@ -11,7 +14,7 @@ public class Input {
     private String type;
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    private String originStep;
+    private List<String> originStep;
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String chainOutput;
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -25,20 +28,23 @@ public class Input {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private List<Input> subInputs;
     @JsonIgnore
-    private Job originJob;
+    private List<Job> originJob;
 
-    public Input(String name, Job originJob, String chainOutput, String type, String value, String prefix,
+    public Input(String name, List<Job> originJob, String chainOutput, String type, String value, String prefix,
                  String separator, String suffix, List<Input> subInputs) {
-        this(name, originJob.getId(), chainOutput, type, value);
+        this.name = name;
+        this.chainOutput = chainOutput;
+        this.value = value;
+        this.type = type;
         this.prefix = prefix;
         this.separator = separator;
         this.suffix = suffix;
         this.subInputs = subInputs;
         this.originJob = originJob;
-        this.originStep = originJob.getId();
+        setOriginSteps(originJob);
     }
 
-    public Input(String name, String originStep, String chainOutput, String type, String value) {
+    public Input(String name, List<String> originStep, String chainOutput, String type, String value) {
         this.name = name;
         this.originStep = originStep;
         this.chainOutput = chainOutput;
@@ -48,8 +54,8 @@ public class Input {
 
     public Input() {}
 
-    public String getOriginStep() { return originStep; }
-    public Job getOriginJob() { return originJob; }
+    public List<String> getOriginStep() { return originStep; }
+    public List<Job> getOriginJob() { return originJob; }
     public String getName() { return name; }
     public String getType() { return type; }
     public String getValue() { return value; }
@@ -60,8 +66,19 @@ public class Input {
     public List<Input> getSubInputs() { return subInputs; }
 
     public void setValue(String value) { this.value = value; }
-    public void setOriginJob(Job originJob) {
+    public void setOriginJob(List<Job> originJob) {
         this.originJob = originJob;
-        this.originStep = originJob.getId();
+        setOriginSteps(originJob);
+    }
+
+    private void setOriginSteps(List<Job> originJob) {
+        List<String> originSteps = new LinkedList<>();
+        originJob.forEach((origin) -> originSteps.add(origin.getId()));
+        this.originStep = originSteps;
+    }
+
+    public void updateOriginJob(Job newOriginJob) {
+        this.originJob = new LinkedList<>(Collections.singletonList(newOriginJob));
+        this.originStep = new LinkedList<>(Collections.singletonList(newOriginJob.getId()));
     }
 }

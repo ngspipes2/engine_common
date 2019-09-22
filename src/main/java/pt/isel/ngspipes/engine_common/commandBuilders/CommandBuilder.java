@@ -38,15 +38,16 @@ abstract class CommandBuilder implements ICommandBuilder {
     }
 
     String getFileArrayInputValue(AbstractMap.SimpleEntry<Job, String> entry, String value) {
+        value = value.replace("[", "");
         StringBuilder sb = new StringBuilder();
         String[] values = value.split(",");
 
         for (String val : values) {
-            sb  .append(getSimpleInputValue(entry, val))
+            sb  .append(entry.getKey().getEnvironment().getWorkDirectory()).append(fileSeparator).append(val)
                     .append(",");
         }
-
-        return sb.toString();
+        sb.deleteCharAt(sb.length() - 1);
+        return "[" + sb.toString();
     }
 
     private String getSimpleInputValue(AbstractMap.SimpleEntry<Job, String> entry, String value) {
@@ -87,7 +88,7 @@ abstract class CommandBuilder implements ICommandBuilder {
         String type = input.getType();
 
         if (type.equalsIgnoreCase("file") || type.equalsIgnoreCase("file[]") ||
-            (type.equalsIgnoreCase("directory") && input.getOriginStep().equals(job.getId()))) {
+            (type.equalsIgnoreCase("directory") && input.getOriginStep().get(0).equals(job.getId()))) {
             value = getFileInputValue(job, func, value, pipeline);
         } else {
              if (type.equalsIgnoreCase("flag")) {

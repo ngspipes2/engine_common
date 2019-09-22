@@ -1,6 +1,7 @@
 package pt.isel.ngspipes.engine_common.utils;
 
 import pt.isel.ngspipes.engine_common.entities.ExecutionNode;
+import pt.isel.ngspipes.engine_common.entities.StateEnum;
 import pt.isel.ngspipes.engine_common.entities.contexts.Job;
 import pt.isel.ngspipes.engine_common.entities.contexts.Pipeline;
 
@@ -12,13 +13,6 @@ public class TopologicSorter {
         List<Job> jobs = pipeline.getJobs();
         List<Job> roots = getRoots(jobs);
         Map<String, Collection<Job>> chainsFrom = getChainFrom(jobs);
-        return parallelSort(pipeline, roots, chainsFrom);
-    }
-
-    public static Collection<ExecutionNode> parallelSort(Pipeline pipeline, Job job) {
-        List<Job> jobs = pipeline.getJobs();
-        Map<String, Collection<Job>> chainsFrom = getChainFrom(jobs);
-        List<Job> roots = getParallelRoots(job, chainsFrom);
         return parallelSort(pipeline, roots, chainsFrom);
     }
 
@@ -65,7 +59,6 @@ public class TopologicSorter {
     private static Collection<ExecutionNode> parallelSort(Pipeline pipeline, List<Job> roots, Map<String, Collection<Job>> chainsFrom) {
         Collection<Job> jobs = pipeline.getJobs();
         Map<String, Collection<Job>> chainsTo = getChainTo(jobs);
-        Map<String, Collection<Job>> chainsFromCpy = getChainFrom(jobs);
         Collection<ExecutionNode> graph = getRootJobs(roots);
 
         while(!roots.isEmpty()) {
@@ -112,32 +105,6 @@ public class TopologicSorter {
                 child.setInconclusive(!child.isInconclusive());
             }
         }
-    }
-
-    private static List<Job> getParallelRoots(Job job, Map<String, Collection<Job>> chainsFrom) {
-        List<Job> roots = new LinkedList<>();
-//
-//        for (ExecutionNode node : rootJobs) {
-//            Job job = node.getJob();
-//            if (job.getState().getState().equals(StateEnum.SUCCESS) &&
-//                    chainsFrom.containsKey(job.getId()) &&
-//                    job.isInconclusive()) {
-//                roots.addAll(getChildRoots(chainsFrom.get(job.getId()), chainsFrom));
-//            }
-//        }
-
-        if (!chainsFrom.containsKey(job.getId())) {
-            return roots;
-        }
-
-        for (Job currJob : chainsFrom.get(job.getId())) {
-            if (currJob.isInconclusive()) {
-                currJob.setInconclusive(!currJob.isInconclusive());
-                roots.add(currJob);
-            }
-        }
-
-        return roots;
     }
 
     private static List<ExecutionNode> getSequentialRoots(List<ExecutionNode> rootJobs) {
@@ -194,16 +161,29 @@ public class TopologicSorter {
     private static List<Job> getRoots(Collection<Job> jobs) {
         List<Job> rootJobs = new LinkedList<>();
         for (Job job : jobs) {
-            if (job.getChainsFrom().isEmpty())
+            if (job.getChainsFrom().isEmpty() || (!job.getChainsFrom().isEmpty() && areParentSuccess(job.getChainsFrom())))
                 rootJobs.add(job);
         }
         return rootJobs;
     }
 
+    private static boolean areParentSuccess(List<Job> chainsFrom) {
+        for (Job job : chainsFrom) {
+            if (!isJobSuccess(job) && !job.isInconclusive())
+                return false;
+        }
+        return true;
+    }
+
+    private static boolean isJobSuccess(Job job) {
+        return job.getState() != null && job.getState().getState() != null && job.getState().getState().equals(StateEnum.SUCCESS);
+    }
+
     private static Map<String, Collection<Job>> getChainTo(Collection<Job> jobs) {
         Map<String, Collection<Job>> chainTo = new HashMap<>();
         for (Job job : jobs) {
-            chainTo.put(job.getId(), new LinkedList<>(job.getChainsFrom()));
+            if (!isJobSuccess(job))
+                chainTo.put(job.getId(), new LinkedList<>(job.getChainsFrom()));
         }
         return chainTo;
     }
@@ -211,7 +191,8 @@ public class TopologicSorter {
     private static Map<String, Collection<Job>> getChainFrom(Collection<Job> jobs) {
         Map<String, Collection<Job>> chainFrom = new HashMap<>();
         for (Job job : jobs) {
-            chainFrom.put(job.getId(), new LinkedList<>(job.getChainsTo()));
+            if (!isJobSuccess(job))
+                chainFrom.put(job.getId(), new LinkedList<>(job.getChainsTo()));
         }
         return chainFrom;
     }

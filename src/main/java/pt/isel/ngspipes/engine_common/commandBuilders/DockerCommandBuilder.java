@@ -44,10 +44,11 @@ public class DockerCommandBuilder extends CommandBuilder {
     }
 
     private String getSimpleInputValue(AbstractMap.SimpleEntry<Job, String> entry, String value) {
-        int begin = value.lastIndexOf(fileSeparator);
-        String inputName = begin != -1 ? value.substring(begin + 1) : value;
+//        int begin = value.lastIndexOf(fileSeparator);
+//        String inputName = begin != -1 ? value.substring(begin + 1) : value;
         String folder = entry.getKey().getEnvironment().getWorkDirectory().replace(entry.getValue(), "");
-        return fileSeparator + "sharedInputs" + folder + fileSeparator + inputName;
+//        return fileSeparator + "sharedInputs" + folder + fileSeparator + inputName;
+        return fileSeparator + "sharedInputs" + folder + fileSeparator + value;
     }
 
     private String getDockerImageName(ExecutionContext execContext) throws CommandBuilderException {
