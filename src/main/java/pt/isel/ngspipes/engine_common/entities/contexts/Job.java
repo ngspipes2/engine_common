@@ -9,18 +9,20 @@ import pt.isel.ngspipes.engine_common.entities.ExecutionState;
 
 import java.util.*;
 
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY)
-@JsonSubTypes({
-        @JsonSubTypes.Type(value = ComposeJob.class, name = "compose"),
-
-        @JsonSubTypes.Type(value = SimpleJob.class, name = "simple") }
-)
+//@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY)
+//@JsonSubTypes({
+//        @JsonSubTypes.Type(value = ComposeJob.class, name = "compose"),
+//
+//        @JsonSubTypes.Type(value = SimpleJob.class, name = "simple") }
+//)
 public abstract class Job {
 
     private String id;
     private final Collection<String> parents;
     private List<Input> inputs;
     private List<Output> outputs;
+    private Environment environment;
+
 
     @JsonIgnore
     boolean inconclusive;
@@ -30,9 +32,6 @@ public abstract class Job {
 
     @JsonIgnore
     private final List<Job> chainsTo = new LinkedList<>();
-
-    @JsonIgnore
-    private Environment environment;
 
     @JsonIgnore
     private ExecutionState state;

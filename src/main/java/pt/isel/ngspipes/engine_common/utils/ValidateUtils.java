@@ -14,6 +14,7 @@ import pt.isel.ngspipes.pipeline_descriptor.step.IStepDescriptor;
 import pt.isel.ngspipes.pipeline_descriptor.step.exec.ICommandExecDescriptor;
 import pt.isel.ngspipes.pipeline_descriptor.step.exec.IExecDescriptor;
 import pt.isel.ngspipes.pipeline_descriptor.step.exec.IPipelineExecDescriptor;
+import pt.isel.ngspipes.pipeline_descriptor.step.input.ChainInputDescriptor;
 import pt.isel.ngspipes.pipeline_descriptor.step.input.IChainInputDescriptor;
 import pt.isel.ngspipes.pipeline_descriptor.step.input.IInputDescriptor;
 import pt.isel.ngspipes.pipeline_descriptor.step.spread.strategyDescriptor.ICombineStrategyDescriptor;
@@ -88,10 +89,11 @@ public class ValidateUtils {
 
     public static void validateInput(IStepDescriptor step, ICommandDescriptor commandDescriptor,
                                      IParameterDescriptor parameterDescriptor, IInputDescriptor input,
+                                     Map<String, IPipelinesRepository> pipelinesRepos,
                                      IPipelineDescriptor pipelineDescriptor, Map<String, Object> parameters) throws EngineCommonException {
         validateMandatory(step, commandDescriptor, parameterDescriptor, input, parameters);
         if (input != null)
-            validateInputType(step, parameterDescriptor, input, pipelineDescriptor, commandDescriptor, parameters);
+            validateInputType(step, parameterDescriptor, input, pipelineDescriptor, pipelinesRepos, parameters);
     }
 
     static void validateInputValues(Map<String, List<String>> inputsValues, String first, String second) throws EngineCommonException {
@@ -165,7 +167,8 @@ public class ValidateUtils {
 
     private static void validateInputType(IStepDescriptor step, IParameterDescriptor parameterDescriptor,
                                           IInputDescriptor input, IPipelineDescriptor pipeDesc,
-                                          ICommandDescriptor commandDescriptor, Map<String, Object> parameters) throws EngineCommonException {
+                                          Map<String, IPipelinesRepository> pipelinesRepos,
+                                          Map<String, Object> parameters) throws EngineCommonException {
         String paramType = parameterDescriptor.getType();
 
         if (paramType.equals("composed")) {
@@ -177,22 +180,55 @@ public class ValidateUtils {
             paramType += "[]";
 
         if (input instanceof IChainInputDescriptor) {
-            IStepDescriptor stepDesc = DescriptorsUtils.getStepById(pipeDesc, ((IChainInputDescriptor) input).getStepId());
+            IChainInputDescriptor chainInputDescriptor = ((IChainInputDescriptor) input);
+            String stepId = chainInputDescriptor.getStepId();
+            String baseId = stepId.contains("_") ? stepId.substring(0, stepId.indexOf("_")) : stepId;
+            ChainInputDescriptor chain = instantiateChainInputDescriptor(pipeDesc, chainInputDescriptor, stepId);
+            IPipelineDescriptor currPipelineDesc = pipeDesc;
+            IStepDescriptor stepDesc = getStepDescriptor(pipeDesc, pipelinesRepos, baseId, chain.getStepId(), currPipelineDesc);
             IExecDescriptor exec = stepDesc.getExec();
             String repoId = exec.getRepositoryId();
-            String stepId = stepDesc.getId();
             if (exec instanceof ICommandExecDescriptor) {
-                IToolRepositoryDescriptor toolsRepoDesc = DescriptorsUtils.getToolRepositoryDescriptorById(repoId, pipeDesc.getRepositories());
-                IToolsRepository toolsRepo = RepositoryUtils.getToolsRepository(toolsRepoDesc, parameters);
+                IToolRepositoryDescriptor toolRepoDesc = DescriptorsUtils.getToolRepositoryDescriptorById(repoId, pipeDesc.getRepositories());
+                IToolsRepository toolsRepo = RepositoryUtils.getToolsRepository(toolRepoDesc, parameters);
                 ICommandExecDescriptor exec1 = (ICommandExecDescriptor) exec;
-                IToolDescriptor toolDesc = DescriptorsUtils.getTool(toolsRepo, exec1.getToolName(), stepId);
+                IToolDescriptor toolDesc = DescriptorsUtils.getTool(toolsRepo, exec1.getToolName(), stepDesc.getId());
                 ICommandDescriptor cmdDesc = DescriptorsUtils.getCommandByName(toolDesc.getCommands(), exec1.getCommandName());
-                validateChainInputType(paramType, input, pipeDesc, cmdDesc, parameters);
+                validateChainInputType(paramType, input, currPipelineDesc, cmdDesc, parameters, stepDesc);
             }
         } else {
             Object inputValue = DescriptorsUtils.getInputValue(input, parameters);
             validateInput(parameterDescriptor.getName(), paramType, inputValue);
         }
+    }
+
+    private static ChainInputDescriptor instantiateChainInputDescriptor(IPipelineDescriptor pipeDesc, IChainInputDescriptor chainInputDescriptor, String stepId) {
+        ChainInputDescriptor chain = new ChainInputDescriptor();
+        chain.setOutputName(chainInputDescriptor.getOutputName());
+        chain.setInputName(chainInputDescriptor.getInputName());
+        String id = getStepId(stepId, pipeDesc);
+        chain.setStepId(id);
+        return chain;
+    }
+
+    private static IStepDescriptor getStepDescriptor(IPipelineDescriptor pipeDesc, Map<String, IPipelinesRepository> pipelinesRepos,
+                                                     String baseId, String id, IPipelineDescriptor currPipelineDesc) throws EngineCommonException {
+        IStepDescriptor stepDesc = DescriptorsUtils.getStepById(pipeDesc, baseId);
+        if (stepDesc.getExec() instanceof IPipelineExecDescriptor) {
+            currPipelineDesc = DescriptorsUtils.getPipelineDescriptor(pipelinesRepos, stepDesc);
+            stepDesc = DescriptorsUtils.getStepById(currPipelineDesc, id);
+        }
+        return stepDesc;
+    }
+
+    private static String getStepId(String stepId, IPipelineDescriptor pipeDesc) {
+        if (!stepId.contains("_"))
+            return stepId;
+        int lastIdx = stepId.lastIndexOf("_");
+        String base = stepId.substring(0, lastIdx);
+        if (DescriptorsUtils.getStepById(pipeDesc, base).getExec() instanceof IPipelineExecDescriptor)
+            return stepId.substring(lastIdx + 1);
+        return base;
     }
 
     private static void validateComposedInput(Collection<IInputDescriptor> inputs, IParameterDescriptor parameterDescriptor) throws EngineCommonException {
@@ -204,14 +240,11 @@ public class ValidateUtils {
     }
 
     private static void validateChainInputType(String paramType, IInputDescriptor input, IPipelineDescriptor pipelineDescriptor,
-                                               ICommandDescriptor commandDescriptor, Map<String, Object> parameters) throws EngineCommonException {
+                                               ICommandDescriptor commandDescriptor, Map<String, Object> parameters,
+                                               IStepDescriptor step) throws EngineCommonException {
         IChainInputDescriptor chainInput = (IChainInputDescriptor) input;
-
-        IStepDescriptor step = DescriptorsUtils.getStepById(pipelineDescriptor, chainInput.getStepId());
-
         String oputputType;
 
-        assert step != null;
         if (step.getExec() instanceof ICommandExecDescriptor) {
             oputputType = getOutputTypeFromTool(chainInput, commandDescriptor);
         } else {

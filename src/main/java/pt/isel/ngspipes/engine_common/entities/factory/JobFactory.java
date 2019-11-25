@@ -37,18 +37,17 @@ import java.util.stream.Collectors;
 public class JobFactory {
 
     public static List<Job> getJobs(IPipelineDescriptor pipelineDesc, Map<String, Object> parameters,
-                                    String workingDirectory, String fileSeparator, Map<String, IToolsRepository> toolsRepos) throws EngineCommonException {
+                                    String workingDirectory, String fileSeparator, Map<String, IToolsRepository> toolsRepos,
+                                    Map<String, ICommandDescriptor> cmdDescriptorById) throws EngineCommonException {
 
         Map<String, IPipelinesRepository> pipelinesRepos = getPipelinesRepositories(pipelineDesc.getRepositories(), parameters);
         Map<String, Map.Entry<Job, ICommandDescriptor>> jobsCmdMap = new HashMap<>();
-        addJobs(pipelineDesc, parameters, workingDirectory, toolsRepos, pipelinesRepos, "", jobsCmdMap, fileSeparator);
+        addJobs(pipelineDesc, parameters, workingDirectory, toolsRepos, pipelinesRepos, "", jobsCmdMap, fileSeparator, cmdDescriptorById);
         setJobsInOut(pipelineDesc, parameters, toolsRepos, pipelinesRepos, jobsCmdMap);
         return jobsCmdMap.values().stream().map(Map.Entry::getKey).collect(Collectors.toList());
     }
 
     public static void expandReadyJobs(List<Job> jobs, Pipeline pipeline, String fileSeparator) throws EngineCommonException {
-//        List<Job> toRemove = new LinkedList<>();
-//        List<Job> expandedJobs = new LinkedList<>();
         List<Job> spreadJobs = new LinkedList<>();
         Map<String, List<Job>> parentsSpread = new HashMap<>();
         for (Job job : jobs) {
@@ -58,26 +57,17 @@ public class JobFactory {
             if (job.getSpread() != null) {
                 parentsSpread.put(sJob.getId(), getSpreadInputsParents(pipeline, sJob));
                 spreadJobs.add(sJob);
-//                if (parentsSpread.isEmpty()) { // not chain not dependent
-//                    List<Job> spreadedJobs = SpreadJobExpander.getExpandedJobs(pipeline, sJob, toRemove, null, fileSeparator);
-//                    expandedJobs.addAll(spreadedJobs);
-//                    SpreadJobExpander.expandJobs(pipeline, sJob, null, fileSeparator);
-//                }
             }
         }
         for (Job spreadJob : spreadJobs) {
             if (parentsSpread.containsKey(spreadJob.getId()) && parentsSpread.get(spreadJob.getId()).isEmpty())
                 SpreadJobExpander.expandJobs(pipeline, (SimpleJob) spreadJob, null, fileSeparator);
         }
-
-//        pipeline.addJobs(expandedJobs);
-//        pipeline.removeJobs(toRemove);
     }
 
     public static Environment getJobEnvironment(String id, String workingDirectory, String fileSeparator) {
         String stepWorkDir = workingDirectory + fileSeparator + id;
         Environment environment = new Environment();
-//        environment.setOutputsDirectory(stepWorkDir + File.separatorChar  + "outputs");
         environment.setOutputsDirectory(stepWorkDir);
         environment.setWorkDirectory(stepWorkDir);
         return environment;
@@ -102,12 +92,13 @@ public class JobFactory {
     private static void addJobs(IPipelineDescriptor pipelineDesc, Map<String, Object> parameters,
                                 String workingDirectory, Map<String, IToolsRepository> toolsRepos,
                                 Map<String, IPipelinesRepository> pipesRepos, String subId,
-                                Map<String, Map.Entry<Job, ICommandDescriptor>> jobCmdMap, String fileSeparator) throws EngineCommonException {
+                                Map<String, Map.Entry<Job, ICommandDescriptor>> jobCmdMap, String fileSeparator,
+                                Map<String, ICommandDescriptor> cmdDescriptorById) throws EngineCommonException {
         for (IStepDescriptor step : pipelineDesc.getSteps()) {
             if (step.getExec() instanceof ICommandExecDescriptor) {
-                addSimpleJob(parameters, workingDirectory, subId, toolsRepos, step, jobCmdMap, fileSeparator);
+                addSimpleJob(parameters, workingDirectory, subId, toolsRepos, step, jobCmdMap, fileSeparator, cmdDescriptorById);
             } else {
-                addComposeJob(parameters, workingDirectory, step, pipesRepos, subId, jobCmdMap, pipelineDesc, fileSeparator);
+                addComposeJob(parameters, workingDirectory, step, pipesRepos, subId, jobCmdMap, pipelineDesc, fileSeparator, cmdDescriptorById);
             }
         }
     }
@@ -115,7 +106,7 @@ public class JobFactory {
     private static void addSimpleJob(Map<String, Object> params, String workingDirectory, String subId,
                                      Map<String, IToolsRepository> toolsRepos, IStepDescriptor step,
                                      Map<String, Map.Entry<Job, ICommandDescriptor>> jobsCmdMap,
-                                     String fileSeparator) throws EngineCommonException {
+                                     String fileSeparator, Map<String, ICommandDescriptor> cmdDescriptorById) throws EngineCommonException {
         String stepId = step.getId();
         CommandExecDescriptor exec = (CommandExecDescriptor) step.getExec();
         IToolsRepository repo = toolsRepos.get(exec.getRepositoryId());
@@ -129,6 +120,7 @@ public class JobFactory {
         if (!subId.isEmpty())
             jobId = generateSubJobId(subId, stepId);
         Environment environment = getJobEnvironment(jobId, workingDirectory, fileSeparator);
+        cmdDescriptorById.put(jobId, cmdDesc);
         Job job = new SimpleJob(jobId, environment, command, execCtx);
         job.setState(new ExecutionState(StateEnum.STAGING, null));
         addJobSpread(step, job);
@@ -148,14 +140,15 @@ public class JobFactory {
     private static void addComposeJob(Map<String, Object> params, String workingDirectory, IStepDescriptor step,
                                       Map<String, IPipelinesRepository> pRepos, String subId,
                                       Map<String, Map.Entry<Job, ICommandDescriptor>> jobsCmdMap,
-                                      IPipelineDescriptor pipelineDesc, String fileSeparator) throws EngineCommonException {
+                                      IPipelineDescriptor pipelineDesc, String fileSeparator,
+                                      Map<String, ICommandDescriptor> cmdDescriptorById) throws EngineCommonException {
         String stepId = step.getId();
         IPipelineDescriptor pipesDescriptor = DescriptorsUtils.getPipelineDescriptor(pRepos, step);
         Collection<IRepositoryDescriptor> repositories = pipesDescriptor.getRepositories();
         Map<String, IToolsRepository> subToolsRepos = getToolsRepositories(repositories, params);
         Map<String, IPipelinesRepository> subPipesRepos = getPipelinesRepositories(repositories, params);
         updateSubPipelineInputs(pipesDescriptor, step);
-        addJobs(pipesDescriptor, params, workingDirectory, subToolsRepos, subPipesRepos, subId + stepId, jobsCmdMap, fileSeparator);
+        addJobs(pipesDescriptor, params, workingDirectory, subToolsRepos, subPipesRepos, subId + stepId, jobsCmdMap, fileSeparator, cmdDescriptorById);
         updateChainInputsToSubPipeline(pipelineDesc, step, jobsCmdMap, pipesDescriptor);
     }
 
@@ -169,7 +162,7 @@ public class JobFactory {
                         if (in.getStepId().equals(step.getId())) {
                             pt.isel.ngspipes.pipeline_descriptor.output.IOutputDescriptor out = DescriptorsUtils.getOutputFromPipeline(subPipeDesc, in.getOutputName());
                             assert out != null;
-                            Job job = getOriginJobByStepId(jobsCmdMap, out.getStepId() + "_" + step.getId());
+                            Job job = getOriginJobByStepId(jobsCmdMap, step.getId() + "_" + out.getStepId());
                             assert job != null;
                             in.setStepId(job.getId());
                             in.setOutputName(out.getOutputName());
@@ -210,8 +203,8 @@ public class JobFactory {
                 assert pipelineDescriptor != null;
                 step = DescriptorsUtils.getStepById(pipelineDescriptor, id);
                 assert step != null;
-                pipelineDescriptor = DescriptorsUtils.getPipelineDescriptor(pipelinesRepos, step);
-                step = DescriptorsUtils.getStepById(pipelineDescriptor, stepId);
+//                pipelineDescriptor = DescriptorsUtils.getPipelineDescriptor(pipelinesRepos, step);
+//                step = DescriptorsUtils.getStepById(pipelineDescriptor, stepId);
             } else
                 step = DescriptorsUtils.getStepById(pipelineDesc, id);
             List<Input> inputs = getInputs(parameters, job, jobCmdMap, toolsRepos, pipelinesRepos, pipelineDesc, step);
@@ -240,7 +233,7 @@ public class JobFactory {
                 } else if (input instanceof IChainInputDescriptor) {
                     IChainInputDescriptor in = (IChainInputDescriptor) input;
                     if (DescriptorsUtils.getStepById(pipelineDesc, in.getStepId()) != null)
-                        in.setStepId(in.getStepId() + "_" + step.getId());
+                        in.setStepId(step.getId() + "_" + in.getStepId());
                 }
             }
             for (IInputDescriptor in : toRemove) {
@@ -307,7 +300,7 @@ public class JobFactory {
                                  String name, Job job, Map<String, Map.Entry<Job, ICommandDescriptor>> jobCmdMap) throws EngineCommonException {
         visitParams.add(name);
         IInputDescriptor input = DescriptorsUtils.getInputByName(step.getInputs(), name);
-        ValidateUtils.validateInput(step, jobCmdMap.get(step.getId()).getValue(), param, input, pipeDesc, params);
+        ValidateUtils.validateInput(step, jobCmdMap.get(job.getId()).getValue(), param, input, pipeRepos, pipeDesc, params);
         StringBuilder inputValue = new StringBuilder();
         List<IParameterDescriptor> subParams = (List<IParameterDescriptor>) param.getSubParameters();
         if (input == null) {
@@ -430,8 +423,9 @@ public class JobFactory {
         String dependentStep = input.getStepId();
         IPipelineDescriptor pipelineDescriptor = pipelineDesc;
         if (dependentStep.contains("_")) {
-            dependentStep = getStepName(dependentStep);
-            pipelineDescriptor = getPipelineDescriptor(pipelinesRepos, pipelineDesc, dependentStep, input.getStepId());
+            String baseStep = dependentStep.substring(0, dependentStep.lastIndexOf("_"));
+            dependentStep = getStepName(dependentStep, baseStep, pipelineDesc);
+            pipelineDescriptor = getPipelineDescriptor(pipelinesRepos, pipelineDesc, baseStep, input.getStepId());
         }
 
         assert pipelineDescriptor != null;
@@ -439,7 +433,7 @@ public class JobFactory {
         String outName = input.getOutputName();
         assert stepDesc != null;
         if (toolsRepos.containsKey(stepDesc.getExec().getRepositoryId())) {
-            StringBuilder val = getOutputValue(parameters, toolsRepos, pipelinesRepos, pipelineDescriptor, outName, stepDesc);
+            StringBuilder val = getOutputValue(parameters, toolsRepos, pipelinesRepos, pipelineDesc, outName, stepDesc);
             value = val.toString();
         } else {
             IPipelinesRepository pipelinesRepository = pipelinesRepos.get(stepDesc.getExec().getRepositoryId());
@@ -461,23 +455,30 @@ public class JobFactory {
     private static IPipelineDescriptor getPipelineDescriptor(Map<String, IPipelinesRepository> pipelinesRepos,
                                                              IPipelineDescriptor parentPipe, String subStep, String stepId) throws EngineCommonException {
         for (IStepDescriptor step : parentPipe.getSteps()) {
-            if (step.getId().equals(subStep)) {
+            String pipelineName = "";
+            if (step.getId().equals(subStep) && step.getExec() instanceof ICommandExecDescriptor) {
                 return parentPipe;
             } else if (stepId.contains(step.getId())) {
-                stepId = stepId.replace(stepId + "_", "");
+                if (step.getExec() instanceof ICommandExecDescriptor) {
+                    stepId = stepId.replace(subStep + "_", "");
+                    if (step.getId().equals(stepId))
+                        return parentPipe;
+                } else if (step.getExec() instanceof IPipelineExecDescriptor) {
+                    pipelineName = step.getId();
+                }
                 IPipelinesRepository pipelinesRepository = pipelinesRepos.get(step.getExec().getRepositoryId());
-                IPipelineExecDescriptor pipeExec = (IPipelineExecDescriptor) step.getExec();
-                IPipelineDescriptor pipelineDescriptor = DescriptorsUtils.getPipelineDescriptor(pipelinesRepository, pipeExec.getPipelineName());
+                IPipelineDescriptor pipelineDescriptor = DescriptorsUtils.getPipelineDescriptor(pipelinesRepository, pipelineName);
                 return getPipelineDescriptor(pipelinesRepos, pipelineDescriptor, subStep, stepId);
             }
         }
         return null;
     }
 
-
-    private static String getStepName(String dependentStep) {
+    private static String getStepName(String dependentStep, String baseStep, IPipelineDescriptor pipelineDesc) {
         int lastIdx = dependentStep.lastIndexOf("_");
-        return dependentStep.substring(0, lastIdx);
+        if (DescriptorsUtils.getStepById(pipelineDesc, baseStep).getExec() instanceof IPipelineExecDescriptor)
+            return dependentStep.substring(lastIdx + 1);
+        return baseStep;
     }
 
     private static StringBuilder getOutputValue(Map<String, Object> params, Map<String, IToolsRepository> toolsRepos,
@@ -502,7 +503,9 @@ public class JobFactory {
                 }
             } else {
                 String currValue = outputValue.substring(outputValue.indexOf("$") + 1);
-                int idxLast = currValue.contains("/") ? currValue.indexOf("/") : currValue.contains("\\") ? currValue.indexOf("\\") : -1;
+                int idxLast = currValue.contains("/") ? currValue.indexOf("/") :
+                                currValue.contains("\\") ? currValue.indexOf("\\") :
+                                        currValue.contains(".*") ? currValue.indexOf(".*") : -1;
                 String inName = currValue;
                 if (idxLast != -1)
                     inName = currValue.substring(0, idxLast);
@@ -709,7 +712,7 @@ public class JobFactory {
     }
 
     private static String generateSubJobId(String subId, String stepId) {
-        return stepId + "_" + subId;
+        return subId + "_" + stepId;
     }
 
     private static ICombineStrategy getStrategy(ISpreadDescriptor spread) {
